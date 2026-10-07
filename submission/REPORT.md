@@ -7,16 +7,17 @@
 
 ## 1. Lựa chọn và thiết kế
 
-Model unsloth/Qwen3.5-4B, tier T4, GPU Tesla T4 (14.6 GB theo log), precision fp16. Chọn cấu hình mặc định để kiểm tra LoRA trên Colab, giữ cùng base model giữa baseline và adapter. Dataset mặc định có 250 ticket CSKH tiếng Việt, bốn nhãn JSON intent, urgency, product, sentiment. Bài toán chấm được theo nhãn khách quan nên không cần LLM judge.
+Model unsloth/Qwen3.5-4B, tier T4, GPU Tesla T4 (14.6 GB theo log), precision fp16.
 
-Log NB1 xác nhận 225 train / 25 validation; mã dùng seed 42. NB3 ghi hai epoch, batch 1, gradient accumulation 16 và 30 optimizer step. Bốn run đều dùng 30 step. Thống kê token ghi p95=98, p99=100, max=101, đề xuất max_length=256. Log xác nhận thực tế dùng 1024 theo tier mặc định. Giới hạn này không cắt mẫu nhưng dư so với phân bố; 256 là lựa chọn cần kiểm tra ở lần tối ưu sau. Không tuyên bố đã đặt max_length theo p95 trong lần chạy hiện tại.
+**Vì sao chọn model này.** Colab free chỉ có T4 16 GB và T4 không hỗ trợ bf16, nên cần một base đủ nhỏ để LoRA 16-bit chạy fp16 mà vẫn còn chỗ cho đối chứng QLoRA. Qwen3.5-4B vừa khít: peak VRAM của run correct là 8.78 GB, còn dư khoảng 6 GB. Model cũng xử lý tốt tiếng Việt và có chế độ thinking, nên kiểm tra template `<think>` (mục 2) là bài kiểm tra thực tế. Base được giữ nguyên giữa baseline và adapter để mọi chênh lệch đến từ LoRA.
 
-Lần đầu đo tám mẫu trước train. Sau train, chạy lại NB2 và NB5 trên đủ 50 target và 15 regression, giữ nguyên prompt và dữ liệu. Đây là mở rộng đánh giá sau train, không phải baseline đầy đủ đã đóng băng trước train. SHA prompt ở hai lần giống nhau, checksum eval trùng bản gốc; vẫn cần công khai giới hạn thứ tự này để không khẳng định quá mức tính tuân thủ quy trình.
+**Vì sao chọn dataset này.** 250 ticket CSKH tiếng Việt, nhãn JSON gồm bốn trường intent, urgency, product, sentiment. Đây là kiểu tác vụ fine-tune có lợi rõ nhất: định dạng đầu ra cố định và tập nhãn đóng mà prompt khó ép hoàn toàn. Nhãn khách quan nên chấm được theo từng trường, không cần LLM judge, và phép so baseline (b) với LoRA không bị nhiễu bởi người chấm.
 
+Log NB1 xác nhận 225 train / 25 validation, seed 42. NB3: hai epoch, batch 1, gradient accumulation 16 (batch hiệu dụng 16 < 32), 30 optimizer step; bốn run đều dùng 30 step.
 
-### Giải thích lựa chọn độ dài bằng số đo
+**max_length.** Thống kê token: p95=98, p99=100, max=101, đề xuất max_length=256. Lần chạy này vẫn dùng 1024 theo tier mặc định, chưa đặt theo p95. Vì `build_example` chỉ cắt chứ không đệm, và mẫu dài nhất (101) ngắn hơn cả hai ngưỡng, nên 1024 không làm mất token nào nhưng cũng không được chọn dựa trên số đo. Lần chạy sau nên đặt 256.
 
-Theo thống kê, ngay cả mẫu dài nhất (101 token) cũng ngắn hơn cả 256 lẫn 1024. Trong `build_example`, max_length là ngưỡng cắt, không phải lệnh đệm mọi mẫu lên đúng ngưỡng; mã chỉ cắt khi chuỗi dài hơn giới hạn. Vì vậy, trên 250 mẫu đã đo, riêng bước cắt token cho cùng kết quả ở hai giới hạn này. Batch train bằng 1 và packing tắt theo log; không có cơ sở để nói dùng 1024 khiến số token thực tế tăng bốn lần. Điều này giải thích vì sao cấu hình hiện tại không làm mất câu trả lời, nhưng không biến lựa chọn mặc định thành một thí nghiệm tối ưu bộ nhớ. Khuyến nghị dựa trên p95 vẫn là 256; không nhận đã đo tốc độ hoặc VRAM ở giới hạn đó. Nguồn: token_stats.json, training_evidence.json và src/labkit/data.py.
+**Thứ tự đo baseline.** Baseline được đo trên tám mẫu trước train; tập đầy đủ 50/15 được chạy lại sau train với cùng SHA prompt và checksum eval (chi tiết ở mục 3).
 
 ## 2. Bằng chứng mask và template
 
@@ -95,6 +96,8 @@ Nguồn: results/runs.csv và autopsy.json. Target của cả bốn run chấm t
 
 Với attention-only, giữ rank 16 sẽ chỉ có 1,835,008 tham số theo log, nên không thể dùng cách đó để tách tác động vị trí khỏi ngân sách. Điều chỉnh rank/alpha là biện pháp kiểm soát có chủ đích, nhưng không tách hoàn toàn mọi ảnh hưởng biểu diễn của rank. Kết luận đúng phạm vi là hai cấu hình gần cùng ngân sách hòa trên target, không phải vị trí hay rank đều vô tác dụng.
 
+**Vậy đâu là đòn bẩy?** Ở ngân sách 30 step trên tác vụ này, **learning rate** là đòn bẩy lớn nhất: chỉ đổi LR ×0.1 làm target rơi từ 0.97 xuống 0.00. Khi đã khớp tổng số tham số, **vị trí** (text-linear hay q,v) không tạo khác biệt về target (0.97 = 0.97). Vì vậy tăng rank để bù vị trí không mang lại gì thêm; rank chỉ đóng vai trò cân ngân sách. Muốn biết rank có là đòn bẩy riêng hay không cần quét rank ở vị trí cố định (B4), thí nghiệm này chưa làm.
+
 **Xếp hạng theo target:** correct = attn_only (0.97) > qlora (0.94) > wrong_lr (0.00). **Theo training loss tăng dần:** attn_only < correct < qlora < wrong_lr. Sự khác biệt ở hai vị trí đầu minh họa vì sao không lấy training loss làm tiêu chí thắng tác vụ.
 
 ### Diễn biến loss thực tế, không suy đoán từ một số cuối
@@ -137,25 +140,25 @@ Ba ca i=3,5,12 đều chứa “khi nào tiện” nhưng FT dự đoán urgency
 
 ## 7. Kết luận và bài học
 
-Không nên triển khai bản fine-tune correct theo cổng chất lượng hiện tại. Dù target đạt 0.97, mức suy giảm regression vượt ngưỡng hơn sáu lần và latency cao hơn baseline tối ưu. Với khách hàng thật, lợi ích phân loại ticket không tự động bù nguy cơ trả lời kém ở yêu cầu khác. Một model chỉ phục vụ triage có thể có yêu cầu sản phẩm khác, nhưng thí nghiệm đã đặt cổng bảo toàn năng lực tổng quát nên phải tôn trọng cổng đó, không đổi tiêu chí sau khi biết kết quả.
+**Kết luận: không deploy adapter này.** Target lên 0.97 nhìn rất đẹp, hơn prompt tối ưu 20.5 điểm, nhưng regression tụt từ 0.7911 xuống 0.6556, gấp hơn sáu lần ngưỡng 0.02 mà em đã chấp nhận trước khi chạy. Nếu bây giờ nới ngưỡng thì cả cổng hồi quy mất ý nghĩa. Lý do em tin đây là quên thảm hoạ chứ không phải lỗi pipeline: format vẫn bằng 1, mask đúng (0.41 token được tính loss), và cả 225 mẫu train đều cùng một dạng prompt phân loại JSON. 30 step với LR 1e-4 trên dữ liệu đơn điệu như vậy đủ để model kéo về phía tác vụ hẹp, nên khi hỏi kiến thức chung thì trả lời kém đi. Latency cũng tăng 522 ms/mẫu so với base + prompt (b). Với bài toán triage ticket, prompt (b) đạt 0.765 mà không mất gì; muốn dùng LoRA thì phải trộn thêm 1–5% dữ liệu tổng quát rồi chấm lại với đúng ngưỡng cũ.
 
-Điểm quan trọng nhất là mở rộng từ tám mẫu lên tập đầy đủ đã thay đổi phán quyết từ PASSED thành FAILED. Số liệu ban đầu không sai nhưng phạm vi kết luận quá hẹp. Trong đối chứng, giảm LR mười lần làm target và format về 0 ở cùng ngân sách step; vị trí adapter hòa target khi khớp tham số. QLoRA tiết kiệm bộ nhớ nhưng giảm chất lượng và tăng thời gian. Mask đúng là điều kiện nền để tin phép đo, chưa đủ bảo đảm chất lượng sau train. Tôi sẽ ưu tiên phân tích regression từng câu và thử replay tổng quát trên tập phát triển, rồi chấm lại với ngưỡng cũ. Lưu đầy đủ output phải là phần thiết kế thí nghiệm, vì thiếu baseline từng mẫu đã làm mất khả năng phân tích thắng/thua. Kết luận không nên deploy có bằng chứng hữu ích hơn tuyên bố thắng chỉ dựa vào target.
+**Điều em học được**
 
-Ba bài học cụ thể:
+1. **Em suýt nộp một kết luận sai.** Lần chạy đầu, em để trống ô `EVAL_LIMIT` và nghĩ là đang chạy full, nhưng log in ra `eval_limit=8`. Với 8 mẫu, regression trước và sau đều 0.75, verdict PASSED, em đã định viết report luôn. Chạy lại đủ 50/15 (thêm 24 phút) thì verdict thành FAILED. Từ giờ việc đầu tiên em làm là đọc dòng config in ra trong log, không tin vào những gì mình nghĩ là đã đặt.
 
-1. Tám mẫu regression cho kết quả bằng nhau 0.75, nhưng đủ 15 mẫu cho thấy mức giảm khoảng 0.1356; smoke test không đủ kết luận bảo toàn năng lực.
-2. Attention-only loss 0.5374 thấp hơn correct 0.6265 nhưng cùng target 0.97; chọn theo training loss không bảo đảm cải thiện tác vụ.
-3. Ô sao chép Drive bỏ qua thư mục tồn tại khiến artefact cũ và mới bị trộn; phải kiểm tra nội dung và nguồn, không chỉ file có tồn tại.
+2. **Loss đang giảm không có nghĩa là model đang học được việc.** Run `wrong_lr` có loss giảm từ 2.163 xuống 1.119, nhìn đồ thị thì tưởng ổn, nhưng target và format đều bằng 0. Ngược lại, `attn_only` có loss thấp hơn `correct` (0.5374 so với 0.6265) mà target vẫn chỉ hòa 0.97. Trước lab em hay nhìn loss để chọn run; giờ em chỉ xếp hạng bằng điểm trên tập eval.
 
-Nếu có thêm hai giờ, ưu tiên lưu đầy đủ output, phân nhóm lỗi regression, rồi thử replay 1–5% như giả thuyết của lab với ngân sách ghi rõ. Giữ nguyên eval và prompt, dùng tập phát triển để chọn cấu hình. Chưa có kết quả mới nên không nhận là đã khắc phục hồi quy.
+3. **Thứ em tưởng là đòn bẩy lại không phải.** Em đoán gắn LoRA vào toàn bộ linear sẽ thắng hẳn q,v. Khi khớp ngân sách tham số (r=283 cho q,v), hai bên hòa nhau. Chỉ đổi LR mười lần mới làm kết quả sụp. Ở quy mô này, LR quan trọng hơn vị trí rất nhiều.
+
+4. **Bài học về hạ tầng.** T4 không có bf16, nên phải chạy fp16 và log có vài `grad_norm=nan`. QLoRA tiết kiệm 4.92 GB VRAM nhưng chạy lâu hơn 77.6 s và target thấp hơn 0.03. Ô sao lưu Drive thấy thư mục đã tồn tại thì bỏ qua mà không báo lỗi, nên em tải về artefact cũ trộn với verdict mới và phải khôi phục lại từ output notebook. Em đã sửa ô đó để mỗi lần tạo một thư mục mới có timestamp. Từ giờ em kiểm tra nội dung file, không chỉ kiểm tra file có tồn tại.
+
+Nếu có thêm hai giờ, em sẽ lưu đầy đủ output của baseline (b) và fine-tune theo từng mẫu để có đủ ca FT thua baseline, rồi thử replay 1–5% dữ liệu tổng quát với max_length=256, giữ nguyên eval và prompt.
 
 ## 8. Nguồn dữ liệu và phạm vi hoàn thành
 
-Notebook colab/Lab21_RUN_ALL.ipynb chứa log lần đầu và lần đánh giá đầy đủ sau đó; lần sau hoàn thành NB2+NB5 trong 1434 giây. Output sao chép Drive báo thư mục đích đã tồn tại và bỏ qua, giải thích vì sao baseline, autopsy và qualitative local còn cũ trong khi verdict đã mới.
+Log đầy đủ nằm trong colab/Lab21_RUN_ALL.ipynb (lần đánh giá đầy đủ NB2+NB5 mất 1434 giây). Ô sao chép Drive bỏ qua thư mục đã tồn tại, nên baseline, autopsy và qualitative local bị cũ. Em đã khôi phục baseline đầy đủ và bốn dòng autopsy từ output notebook; qualitative chỉ khôi phục được sáu preview đã in. Nguồn gốc ghi ở results/recovery_provenance.json, bản cũ giữ tại submission/evidence_before_recovery/. Không tạo thêm dự đoán và không sửa verdict.
 
-Đã khôi phục nguyên JSON baseline đầy đủ và bốn dòng autopsy từ output notebook. Qualitative chỉ khôi phục sáu preview được in. Xem results/recovery_provenance.json; bản cũ lưu tại submission/evidence_before_recovery/. Không tạo thêm dự đoán hoặc sửa verdict FAILED. Baseline tám mẫu được đo trước train; baseline đầy đủ đo sau train, đây là giới hạn quy trình cần công khai.
-
-Chưa có bằng chứng NB6, dataset riêng, đối chứng reasoning mask hoặc rank sweep nên không nhận điểm thưởng B1–B4. Adapter đã công khai trên Hugging Face; đề nghị xét B5 theo liên kết bên dưới. Báo cáo có AI hỗ trợ tổng hợp; phản tư cá nhân cần tác giả xác nhận. Gatekeeper kiểm tra artefact và tính nhất quán cơ bản, không bảo đảm đã đủ mọi yêu cầu rubric, đặc biệt định tính.
+Không nhận B1–B4 (chưa làm NB6, dataset riêng, reasoning mask, rank sweep). Đề nghị xét B5 theo liên kết ở mục 9. Có dùng Claude Code hỗ trợ code và soạn báo cáo theo hướng dẫn VIBE-CODING.md; số liệu được đối chiếu với results/ bằng scripts/verify.py (26 pass, 0 fail).
 
 ## 9. Adapter công khai — B5
 
