@@ -5,7 +5,7 @@
       "target": 0.0,
       "regression": 0.7911,
       "format": 0.0,
-      "latency_ms": 3731.2,
+      "latency_ms": 3242.6,
       "n": 50
     },
     {
@@ -13,7 +13,7 @@
       "target": 0.765,
       "regression": 0.7911,
       "format": 1.0,
-      "latency_ms": 1093.2,
+      "latency_ms": 1059.0,
       "n": 50
     },
     {
@@ -21,7 +21,7 @@
       "target": 0.97,
       "regression": 0.6556,
       "format": 1.0,
-      "latency_ms": 1615.3,
+      "latency_ms": 1414.7,
       "n": 50
     }
   ],
