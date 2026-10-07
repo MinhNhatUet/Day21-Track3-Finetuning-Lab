@@ -1,0 +1,14 @@
+{
+  "source": "colab/Lab21_RUN_ALL.ipynb",
+  "method": "Exact JSON and Markdown table extraction from saved full-eval output",
+  "baseline": "Complete JSON recovered without changing values",
+  "autopsy": "All four full-eval rows recovered at printed precision",
+  "qualitative": "Only six printed previews recovered; original 50-row file unavailable",
+  "missing": [
+    "44 qualitative rows",
+    "complete FT predictions",
+    "per-item baseline predictions"
+  ],
+  "old_artifacts": "submission/evidence_before_recovery/",
+  "chronology": "8-item baseline before training; full baseline and evaluation rerun after training"
+}

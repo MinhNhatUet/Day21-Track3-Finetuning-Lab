@@ -15,8 +15,7 @@ adapters/*/
 !adapters/.gitkeep
 data/split/
 data/CUSTOM_DATASET.md
-results/*.json
-results/*.csv
+# Evaluation artifacts are versioned for the student's Option B submission.
 !results/.gitkeep
 gguf/
 *.gguf
@@ -37,3 +36,6 @@ hf_cache/
 .idea/
 .vscode/
 *.swp
+
+# Packaged submission; adapter weights are hosted on Hugging Face.
+lab21_*.zip
